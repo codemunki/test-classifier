@@ -24,41 +24,75 @@ CREATE INDEX IF NOT EXISTS idx_runs_test_started ON runs(test_id, started_at);
 `
 
 // Store persists run records and retrieves history by test ID.
+// A single-connection write pool serialises writes; a separate read pool
+// allows concurrent reads under SQLite's WAL mode.
 type Store struct {
-	db *sql.DB
+	write *sql.DB
+	read  *sql.DB
 }
 
 // Open opens (or creates) a SQLite database at the given path.
 // Use ":memory:" for an in-process test database.
 func Open(path string) (*Store, error) {
-	db, err := sql.Open("sqlite", path)
+	write, err := sql.Open("sqlite", path)
 	if err != nil {
-		return nil, fmt.Errorf("open db: %w", err)
+		return nil, fmt.Errorf("open write db: %w", err)
 	}
-	// Serialize writes through a single connection; WAL allows concurrent reads.
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
-	if _, err := db.Exec(`
+	// Single connection serialises all writes; WAL ensures readers are not blocked.
+	write.SetMaxOpenConns(1)
+	write.SetMaxIdleConns(1)
+	if _, err := write.Exec(`
 		PRAGMA journal_mode=WAL;
 		PRAGMA busy_timeout=5000;
 		PRAGMA synchronous=NORMAL;
 	`); err != nil {
-		return nil, fmt.Errorf("configure db: %w", err)
+		write.Close()
+		return nil, fmt.Errorf("configure write db: %w", err)
 	}
-	if _, err := db.Exec(schema); err != nil {
+	if _, err := write.Exec(schema); err != nil {
+		write.Close()
 		return nil, fmt.Errorf("apply schema: %w", err)
 	}
-	return &Store{db: db}, nil
+
+	// In-memory databases are connection-scoped: a second connection would see
+	// an empty database. Share the write connection for reads in that case.
+	if path == ":memory:" {
+		return &Store{write: write, read: write}, nil
+	}
+
+	read, err := sql.Open("sqlite", path)
+	if err != nil {
+		write.Close()
+		return nil, fmt.Errorf("open read db: %w", err)
+	}
+	// WAL allows multiple concurrent readers alongside the single writer.
+	read.SetMaxOpenConns(10)
+	read.SetMaxIdleConns(10)
+	if _, err := read.Exec(`PRAGMA busy_timeout=5000;`); err != nil {
+		write.Close()
+		read.Close()
+		return nil, fmt.Errorf("configure read db: %w", err)
+	}
+
+	return &Store{write: write, read: read}, nil
 }
 
-// Close closes the underlying database connection.
+// Close closes the underlying database connections.
 func (s *Store) Close() error {
-	return s.db.Close()
+	werr := s.write.Close()
+	if s.read == s.write {
+		return werr
+	}
+	rerr := s.read.Close()
+	if werr != nil {
+		return werr
+	}
+	return rerr
 }
 
 // InsertRun persists a single run record. Duplicate run_ids are silently ignored.
 func (s *Store) InsertRun(r classifier.Run) error {
-	_, err := s.db.Exec(
+	_, err := s.write.Exec(
 		`INSERT OR IGNORE INTO runs (test_id, run_id, status, duration_ms, started_at, error_message)
 		 VALUES (?, ?, ?, ?, ?, ?)`,
 		r.TestID, r.RunID, r.Status, r.DurationMS,
@@ -73,7 +107,7 @@ func (s *Store) InsertRun(r classifier.Run) error {
 
 // GetHistory returns up to limit of the most recent runs for testID, ordered oldest first.
 func (s *Store) GetHistory(testID string, limit int) ([]classifier.Run, error) {
-	rows, err := s.db.Query(
+	rows, err := s.read.Query(
 		`SELECT test_id, run_id, status, duration_ms, started_at, error_message
 		 FROM (
 		   SELECT test_id, run_id, status, duration_ms, started_at, error_message
@@ -108,7 +142,7 @@ func (s *Store) GetHistory(testID string, limit int) ([]classifier.Run, error) {
 
 // TestIDs returns all distinct test IDs in the store.
 func (s *Store) TestIDs() ([]string, error) {
-	rows, err := s.db.Query(`SELECT DISTINCT test_id FROM runs ORDER BY test_id`)
+	rows, err := s.read.Query(`SELECT DISTINCT test_id FROM runs ORDER BY test_id`)
 	if err != nil {
 		return nil, fmt.Errorf("query test ids: %w", err)
 	}

@@ -15,7 +15,7 @@ SQLite. In-memory dies on restart, which undercuts production-facing intent. Pos
 | `healthy` | Pass rate >95% over recent window, no negative trend |
 | `flaky` | Pass rate 15–95%, or inconsistent failure pattern |
 | `broken` | Pass rate <15%, or recent window near 0% |
-| `degrading` | Pass rate acceptable but p95 duration increasing significantly |
+| `degrading` | Pass rate acceptable but p50 duration increasing significantly |
 | `insufficient_data` | Fewer than 5 runs — no classification made |
 
 `anomalous` was considered (sudden step-change in duration, bimodal pass/fail patterns, abrupt error message shifts) but not implemented as a distinct label. These patterns are structurally ambiguous — defining them precisely enough to classify with high confidence via heuristics is difficult, and adding a vague catch-all label reduces rather than increases signal for the user. In practice, tests with unusual signal combinations fall below the statistical confidence threshold (0.70) and are escalated to the LLM, which reasons about the pattern in natural language. The LLM path handles the `anomalous` space more defensibly than a hard-coded category would.
@@ -27,7 +27,7 @@ The prompt explicitly asks whether to use AI at runtime and expects a defence ei
 **Statistical classifier** — computes signals over a sliding window of the last 50 runs:
 - Pass rate and recent trend (last 10 vs prior 40)
 - Error message consistency after normalization (strip numbers, lowercase) to approximate clustering without embeddings
-- Duration drift (p95 trend)
+- Duration drift (p50 median, comparing first half vs second half of the window)
 
 Confidence is derived from sample size and how cleanly the test maps to a category. Reasoning is assembled from the signal values as a human-readable string.
 
@@ -46,7 +46,7 @@ Both classifiers must satisfy the same BDD suite. These scenarios serve as groun
 
 ## Validation
 
-Both classifiers were run against all 100 tests in the sample dataset using a Python prototype (`prototype/classify.py`). Full output is in `prototype/results-llm.txt`.
+Both classifiers were run against all 100 tests in the sample dataset using a Python prototype (`prototype/classify.py`). Results can be reproduced with `make run-llm` in the `prototype/` directory (requires `ANTHROPIC_API_KEY`).
 
 **Agreement: 87/100 (87%).** The 13 divergent cases split into two patterns:
 
@@ -58,7 +58,7 @@ Both classifiers were run against all 100 tests in the sample dataset using a Py
 
 **Cost:** ~$0.05 per full 100-test run on Haiku 4.5 with prompt caching. Acceptable for a background re-classification job; too expensive to run on every ingested event.
 
-**Production conclusion:** statistical classifier on every ingestion event; LLM re-classification as a background job for tests where statistical confidence falls below 0.7 (9 tests in this dataset — the ones with conflicting signals). The LLM's value is its natural-language reasoning on ambiguous cases, not raw classification accuracy on clear ones.
+**Implementation:** classification runs on every `GET /tests/{test_id}` request. The statistical classifier runs first; if confidence falls below 0.70 the LLM is called synchronously on the same request. This is acceptable at this scale — only ~9% of tests in the sample dataset cross the threshold. At higher read volume the LLM call would move to a background re-classification job with the last known result cached for reads. The LLM's value is its natural-language reasoning on ambiguous cases, not raw classification accuracy on clear ones.
 
 ## What Was Cut
 

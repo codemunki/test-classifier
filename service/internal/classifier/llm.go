@@ -210,23 +210,29 @@ func buildSummary(testID string, history []Run) string {
 	failures := onlyFailed(nonSkipped)
 	if len(failures) > 0 {
 		fmt.Fprintf(&b, "failure_count: %d\n", len(failures))
-		seen := make(map[string]struct{})
-		var samples []string
-		for _, r := range failures {
-			if r.ErrorMessage == "" {
-				continue
-			}
-			norm := normalizeError(r.ErrorMessage)
-			if _, ok := seen[norm]; !ok {
-				seen[norm] = struct{}{}
-				samples = append(samples, norm)
-				if len(samples) == 3 {
-					break
-				}
-			}
+	}
+
+	// Chronological timeline — lets the LLM spot temporal patterns (periodicity,
+	// error drift, sudden state changes) that aggregated stats erase.
+	b.WriteString("timeline (oldest→newest, skipped omitted):\n")
+	const maxErrLen = 60
+	for i, r := range w {
+		if r.Status == "skipped" {
+			continue
 		}
-		if len(samples) > 0 {
-			fmt.Fprintf(&b, "sample_errors: %v\n", samples)
+		switch r.Status {
+		case "passed":
+			fmt.Fprintf(&b, "  [%d] passed %dms\n", i+1, r.DurationMS)
+		default:
+			msg := r.ErrorMessage
+			if len(msg) > maxErrLen {
+				msg = msg[:maxErrLen] + "…"
+			}
+			if msg != "" {
+				fmt.Fprintf(&b, "  [%d] %s %dms %q\n", i+1, r.Status, r.DurationMS, msg)
+			} else {
+				fmt.Fprintf(&b, "  [%d] %s %dms\n", i+1, r.Status, r.DurationMS)
+			}
 		}
 	}
 
