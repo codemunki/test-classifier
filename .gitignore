@@ -1,0 +1,16 @@
+# Python
+prototype/.venv/
+prototype/__pycache__/
+prototype/*.pyc
+
+# Generated output
+prototype/results.txt
+prototype/results-llm.txt
+
+# SQLite
+*.db
+*.db-shm
+*.db-wal
+
+# Go
+/service

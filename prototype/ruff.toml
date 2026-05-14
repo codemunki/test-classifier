@@ -1,0 +1,9 @@
+line-length = 100
+
+[lint]
+select = ["E", "F", "I", "PLC0415"]
+
+[lint.per-file-ignores]
+# anthropic is imported inline intentionally — deferred until --llm flag is confirmed
+# to avoid ImportError when the package is absent
+"classify.py" = ["PLC0415"]
