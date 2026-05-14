@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -154,8 +154,11 @@ func (s *Server) handleClassify(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "classification failed")
 		return
 	}
-	log.Printf("classify test_id=%s label=%s confidence=%.2f duration_ms=%d",
-		testID, result.Label, result.Confidence, time.Since(start).Milliseconds())
+	slog.Info("classify",
+		"test_id", testID,
+		"label", result.Label,
+		"confidence", result.Confidence,
+		"duration_ms", time.Since(start).Milliseconds())
 
 	writeJSON(w, http.StatusOK, classifyResponse{
 		TestID:     testID,
@@ -175,7 +178,7 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(v); err != nil {
-		log.Printf("writeJSON encode error: %v", err)
+		slog.Error("writeJSON encode", "err", err)
 	}
 }
 

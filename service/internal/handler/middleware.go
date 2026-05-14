@@ -1,7 +1,7 @@
 package handler
 
 import (
-	"log"
+	"log/slog"
 	"net/http"
 	"time"
 )
@@ -18,12 +18,25 @@ func (r *responseRecorder) WriteHeader(status int) {
 }
 
 // LoggingMiddleware logs method, path, status, and latency for every request.
+// 5xx → ERROR, 4xx → WARN, 2xx/3xx → INFO.
 func LoggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		rec := &responseRecorder{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(rec, r)
-		log.Printf("request method=%s path=%s status=%d duration_ms=%d",
-			r.Method, r.URL.Path, rec.status, time.Since(start).Milliseconds())
+		args := []any{
+			"method", r.Method,
+			"path", r.URL.Path,
+			"status", rec.status,
+			"duration_ms", time.Since(start).Milliseconds(),
+		}
+		switch {
+		case rec.status >= 500:
+			slog.Error("request", args...)
+		case rec.status >= 400:
+			slog.Warn("request", args...)
+		default:
+			slog.Info("request", args...)
+		}
 	})
 }

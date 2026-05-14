@@ -2,7 +2,7 @@ package classifier
 
 import (
 	"context"
-	"log"
+	"log/slog"
 )
 
 const ensembleThreshold = 0.70
@@ -28,12 +28,15 @@ func (e *ensemble) Classify(ctx context.Context, testID string, history []Run) (
 		return result, nil
 	}
 
-	log.Printf("test %q: stat confidence %.2f < %.2f, escalating to LLM", testID, result.Confidence, ensembleThreshold)
+	slog.Debug("escalating to LLM",
+		"test_id", testID,
+		"confidence", result.Confidence,
+		"threshold", ensembleThreshold)
 
 	llmResult, err := e.llm.Classify(ctx, testID, history)
 	if err != nil {
 		// LLM failure is non-fatal — fall back to the statistical result
-		log.Printf("test %q: LLM classifier failed (%v), using stat result", testID, err)
+		slog.Warn("LLM classifier failed, using stat result", "test_id", testID, "err", err)
 		return result, nil
 	}
 

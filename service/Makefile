@@ -1,7 +1,8 @@
-BIN     := test-classifier
-DB      := classifier.db
-ADDR    := :8080
-DATA    := ../data/sample_data.jsonl
+BIN       := test-classifier
+DB        := classifier.db
+ADDR      := :8080
+DATA      := ../data/sample_data.jsonl
+LOG_LEVEL ?= info
 
 .PHONY: build run test load smoke lint fmt clean help
 
@@ -9,7 +10,7 @@ help:
 	@echo "Usage: make <target>"
 	@echo ""
 	@echo "  build   Compile the server binary"
-	@echo "  run     Build and run the server (DB=$(DB), addr=$(ADDR))"
+	@echo "  run     Build and run the server (DB=$(DB), addr=$(ADDR), log-level=$(LOG_LEVEL))"
 	@echo "  test    Run the full test suite"
 	@echo "  load    Stream sample data into a running server"
 	@echo "  smoke   Run smoke tests and save server logs to smoke-logs.txt"
@@ -21,7 +22,7 @@ build:
 	go build -o $(BIN) ./cmd/server
 
 run: build
-	./$(BIN) -addr $(ADDR) -db $(DB)
+	LOG_LEVEL=$(LOG_LEVEL) ./$(BIN) -addr $(ADDR) -db $(DB)
 
 test:
 	go test ./...

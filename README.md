@@ -34,15 +34,23 @@ Both are declared in `service/go.mod` and fetched automatically by `go build`.
 
 ## Configuration
 
-The server accepts two flags:
+The server accepts three flags:
 
 | Flag | Default | Description |
 |---|---|---|
 | `-addr` | `:8080` | TCP listen address |
 | `-db` | `classifier.db` | SQLite database file path |
+| `-log-level` | `info` | Log verbosity: `debug`, `info`, `warn`, `error` |
+
+The `-log-level` flag can also be set via the `LOG_LEVEL` environment variable. The flag takes precedence if both are provided.
 
 ```bash
-./test-classifier -addr :9090 -db /var/data/classifier.db
+# via flag
+./test-classifier -addr :9090 -db /var/data/classifier.db -log-level debug
+
+# via env var (works with make targets too)
+LOG_LEVEL=debug make run
+LOG_LEVEL=debug make smoke
 ```
 
 ### LLM escalation
@@ -188,19 +196,22 @@ Builds the binary, starts the server on a temporary port and database, exercises
 | Ingest 10 recent failures on top, then `GET` | `broken` — recent-collapse detection fires |
 | Ingest 50 alternating pass/fail runs, then `GET` (requires `ANTHROPIC_API_KEY`) | LLM escalation fires — statistical confidence < 0.70 |
 
-Server logs are written to `smoke.log` as a record of the run. The log captures every request (method, path, status, latency) and every classification (test\_id, label, confidence, duration):
+Server logs are written to `smoke.log` as a record of the run. Logs use structured text format (`key=value` pairs) with levels. The log captures every request, every classification, and (when the LLM is active) token cost per call:
 
 ```
-request method=POST path=/events status=202 duration_ms=1
-classify test_id=cart.happy_path label=broken confidence=0.85 duration_ms=0
-request method=GET path=/tests/cart.happy_path status=200 duration_ms=1
+time=... level=INFO  msg=request  method=POST path=/events status=202 duration_ms=1
+time=... level=INFO  msg=classify test_id=cart.happy_path label=broken confidence=0.85 duration_ms=0
+time=... level=WARN  msg=request  method=POST path=/events status=400 duration_ms=0
 ```
 
-When `ANTHROPIC_API_KEY` is set, LLM escalation log lines are also captured:
+When `ANTHROPIC_API_KEY` is set, LLM escalation lines appear at DEBUG (escalation trigger) and INFO (cost):
 
 ```
-llm test_id=checkout.third_party_failure duration_ms=1342 input_tokens=312 output_tokens=48 cost_usd=0.000552
+time=... level=DEBUG msg="escalating to LLM" test_id=llm.smoke confidence=0.55 threshold=0.7
+time=... level=INFO  msg=llm test_id=llm.smoke duration_ms=1342 input_tokens=312 output_tokens=48 cost_usd=0.000552
 ```
+
+Run with `LOG_LEVEL=debug make smoke` to see escalation decisions alongside normal output.
 
 ## Load the sample data
 

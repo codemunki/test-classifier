@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -86,14 +86,20 @@ func (l *llmClassifier) Classify(ctx context.Context, testID string, history []R
 	outTokens := msg.Usage.OutputTokens
 	costUSD := (float64(inTokens)/1e6)*haiku45InputPricePerM +
 		(float64(outTokens)/1e6)*haiku45OutputPricePerM
-	log.Printf("llm test_id=%s duration_ms=%d input_tokens=%d output_tokens=%d cost_usd=%.6f",
-		testID, latency.Milliseconds(), inTokens, outTokens, costUSD)
+	slog.Info("llm",
+		"test_id", testID,
+		"duration_ms", latency.Milliseconds(),
+		"input_tokens", inTokens,
+		"output_tokens", outTokens,
+		"cost_usd", costUSD)
 
 	if len(msg.Content) == 0 {
 		return Result{}, fmt.Errorf("llm returned empty response")
 	}
 
 	raw := strings.TrimSpace(msg.Content[0].Text)
+	slog.Debug("llm response", "test_id", testID, "raw", raw)
+
 	raw = strings.TrimPrefix(raw, "```json")
 	raw = strings.TrimPrefix(raw, "```")
 	raw = strings.TrimSuffix(raw, "```")
@@ -113,11 +119,13 @@ func (l *llmClassifier) Classify(ctx context.Context, testID string, history []R
 		label = LabelFlaky
 	}
 
-	return Result{
+	result := Result{
 		Label:      label,
 		Confidence: round2(out.Confidence),
 		Reasoning:  out.Reasoning,
-	}, nil
+	}
+	slog.Debug("llm parsed", "test_id", testID, "label", result.Label, "confidence", result.Confidence, "reasoning", result.Reasoning)
+	return result, nil
 }
 
 // buildSummary produces a compact text summary of the run window for the LLM.

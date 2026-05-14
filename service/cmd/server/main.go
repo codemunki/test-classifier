@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"flag"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -19,19 +19,25 @@ import (
 func main() {
 	addr := flag.String("addr", ":8080", "listen address")
 	dbPath := flag.String("db", "classifier.db", "SQLite database path")
+	logLevel := flag.String("log-level", getEnvOr("LOG_LEVEL", "info"), "log level: debug, info, warn, error (overrides $LOG_LEVEL)")
 	flag.Parse()
+
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: parseLogLevel(*logLevel),
+	})))
 
 	s, err := store.Open(*dbPath)
 	if err != nil {
-		log.Fatalf("open store: %v", err)
+		slog.Error("open store", "err", err)
+		os.Exit(1)
 	}
 
 	var c classifier.Classifier
 	if key := os.Getenv("ANTHROPIC_API_KEY"); key != "" {
-		log.Println("ANTHROPIC_API_KEY set — LLM classifier enabled")
+		slog.Info("LLM classifier enabled")
 		c = classifier.NewEnsemble(classifier.NewStatistical(), classifier.NewLLM(key))
 	} else {
-		log.Println("ANTHROPIC_API_KEY not set — using statistical classifier only")
+		slog.Info("statistical classifier only", "reason", "ANTHROPIC_API_KEY not set")
 		c = classifier.NewStatistical()
 	}
 
@@ -47,23 +53,45 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
-		log.Printf("listening on %s", *addr)
+		slog.Info("listening", "addr", *addr)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Fatalf("server: %v", err)
+			slog.Error("server", "err", err)
+			os.Exit(1)
 		}
 	}()
 
 	<-quit
-	log.Println("shutting down...")
+	slog.Info("shutting down")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
 	if err := srv.Shutdown(ctx); err != nil {
-		log.Fatalf("shutdown: %v", err)
+		slog.Error("shutdown", "err", err)
+		os.Exit(1)
 	}
 	if err := s.Close(); err != nil {
-		log.Printf("store close: %v", err)
+		slog.Warn("store close", "err", err)
 	}
-	log.Println("stopped")
+	slog.Info("stopped")
+}
+
+func getEnvOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
+func parseLogLevel(s string) slog.Level {
+	switch s {
+	case "debug":
+		return slog.LevelDebug
+	case "warn":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
 }

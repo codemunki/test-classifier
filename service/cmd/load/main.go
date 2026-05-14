@@ -6,7 +6,7 @@ import (
 	"bytes"
 	"flag"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"time"
@@ -19,7 +19,8 @@ func main() {
 
 	f, err := os.Open(*file)
 	if err != nil {
-		log.Fatalf("open %s: %v", *file, err)
+		slog.Error("open file", "path", *file, "err", err)
+		os.Exit(1)
 	}
 	defer f.Close()
 
@@ -35,20 +36,21 @@ func main() {
 		}
 		resp, err := client.Post(url, "application/json", bytes.NewReader(line))
 		if err != nil {
-			log.Printf("POST failed: %v", err)
+			slog.Warn("POST failed", "err", err)
 			skipped++
 			continue
 		}
 		resp.Body.Close()
 		if resp.StatusCode != http.StatusAccepted {
-			log.Printf("unexpected status %d for line: %s", resp.StatusCode, line)
+			slog.Warn("unexpected status", "status", resp.StatusCode)
 			skipped++
 			continue
 		}
 		sent++
 	}
 	if err := scanner.Err(); err != nil {
-		log.Fatalf("scan: %v", err)
+		slog.Error("scan", "err", err)
+		os.Exit(1)
 	}
 	fmt.Printf("done: %d sent, %d skipped\n", sent, skipped)
 }
