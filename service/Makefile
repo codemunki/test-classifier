@@ -4,7 +4,7 @@ ADDR      := :8080
 DATA      := ../data/sample_data.jsonl
 LOG_LEVEL ?= info
 
-.PHONY: build run test load smoke stress lint fmt clean help
+.PHONY: build run test cover load smoke stress lint fmt clean help
 
 help:
 	@echo "Usage: make <target>"
@@ -12,6 +12,7 @@ help:
 	@echo "  build   Compile the server binary"
 	@echo "  run     Build and run the server (DB=$(DB), addr=$(ADDR), log-level=$(LOG_LEVEL))"
 	@echo "  test    Run the full test suite"
+	@echo "  cover   Run tests and show per-function coverage (excludes cmd/)"
 	@echo "  load    Stream sample data into a running server"
 	@echo "  smoke   Run smoke tests and save server logs to smoke.log"
 	@echo "  stress  Run extended stat + LLM escalation scenarios (stress.log)"
@@ -27,6 +28,11 @@ run: build
 
 test:
 	go test ./...
+
+cover:
+	go test ./internal/... -coverprofile=coverage.out
+	go tool cover -func=coverage.out
+	@rm -f coverage.out
 
 load:
 	go run ./cmd/load -addr http://localhost$(ADDR) -file $(DATA)

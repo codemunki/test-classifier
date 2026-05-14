@@ -2,7 +2,9 @@ package handler_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +13,13 @@ import (
 	"github.com/mdoherty/test-classifier/internal/handler"
 	"github.com/mdoherty/test-classifier/internal/store"
 )
+
+// failClassifier always returns an error from Classify.
+type failClassifier struct{}
+
+func (f *failClassifier) Classify(_ context.Context, _ string, _ []classifier.Run) (classifier.Result, error) {
+	return classifier.Result{}, errors.New("forced classifier error")
+}
 
 func newTestServer(t *testing.T) http.Handler {
 	t.Helper()
@@ -108,6 +117,61 @@ func TestIngest_RejectsWrongContentType(t *testing.T) {
 	}
 }
 
+func TestIngest_RejectsNegativeDuration(t *testing.T) {
+	h := newTestServer(t)
+	w := post(t, h, map[string]any{
+		"test_id": "t", "run_id": "r1", "status": "passed",
+		"duration_ms": -1, "started_at": "2026-01-01T00:00:00Z",
+	})
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestIngest_RejectsFutureTimestamp(t *testing.T) {
+	h := newTestServer(t)
+	w := post(t, h, map[string]any{
+		"test_id": "t", "run_id": "r1", "status": "passed",
+		"started_at": "2099-01-01T00:00:00Z",
+	})
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestIngest_RejectsInvalidTestIDChars(t *testing.T) {
+	h := newTestServer(t)
+	w := post(t, h, map[string]any{
+		"test_id": "bad\nid", "run_id": "r1", "status": "passed",
+		"started_at": "2026-01-01T00:00:00Z",
+	})
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestIngest_RejectsInvalidRunIDChars(t *testing.T) {
+	h := newTestServer(t)
+	w := post(t, h, map[string]any{
+		"test_id": "t", "run_id": "bad id", "status": "passed",
+		"started_at": "2026-01-01T00:00:00Z",
+	})
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestIngest_ErrorMessageClearedOnPassedRun(t *testing.T) {
+	h := newTestServer(t)
+	w := post(t, h, map[string]any{
+		"test_id": "t", "run_id": "r1", "status": "passed",
+		"started_at": "2026-01-01T00:00:00Z", "error_message": "should be cleared",
+	})
+	if w.Code != http.StatusAccepted {
+		t.Errorf("status = %d, want 202 (error_message on passed should be accepted silently)", w.Code)
+	}
+}
+
 func TestIngest_DuplicateRunIsIdempotent(t *testing.T) {
 	h := newTestServer(t)
 	event := map[string]any{
@@ -132,6 +196,34 @@ func TestClassify_InsufficientDataForNewTest(t *testing.T) {
 	json.NewDecoder(w.Body).Decode(&resp)
 	if resp["label"] != "insufficient_data" {
 		t.Errorf("label = %q, want insufficient_data", resp["label"])
+	}
+}
+
+func TestClassify_ClassifierError_Returns500(t *testing.T) {
+	s, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { s.Close() })
+
+	h := handler.New(s, &failClassifier{})
+	w := get(t, h, "some-test")
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", w.Code)
+	}
+}
+
+func TestClassify_StoreError_Returns500(t *testing.T) {
+	s, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	h := handler.New(s, classifier.NewStatistical())
+	s.Close() // force GetHistory to fail
+
+	w := get(t, h, "some-test")
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", w.Code)
 	}
 }
 

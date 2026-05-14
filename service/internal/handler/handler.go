@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -50,6 +51,9 @@ var validStatuses = map[string]bool{
 	"passed": true, "failed": true, "skipped": true, "errored": true,
 }
 
+// reID matches safe, URL-friendly identifiers: letters, digits, underscores, hyphens, dots.
+var reID = regexp.MustCompile(`^[a-zA-Z0-9_.\-]+$`)
+
 func (s *Server) handleIngest(w http.ResponseWriter, r *http.Request) {
 	if ct := r.Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
 		writeError(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
@@ -81,11 +85,19 @@ func (s *Server) handleIngest(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "started_at must be an RFC3339 timestamp")
 		return
 	}
+	if startedAt.After(time.Now().Add(time.Hour)) {
+		writeError(w, http.StatusBadRequest, "started_at must not be more than 1 hour in the future")
+		return
+	}
 
 	// Truncate error_message rather than reject — callers may not control its length.
 	errorMessage := req.ErrorMessage
 	if len(errorMessage) > maxErrorMessageLen {
 		errorMessage = errorMessage[:maxErrorMessageLen]
+	}
+	// Silently clear error_message for statuses that cannot have errors.
+	if req.Status == "passed" || req.Status == "skipped" {
+		errorMessage = ""
 	}
 
 	run := classifier.Run{
@@ -111,14 +123,23 @@ func validateEvent(req eventRequest) error {
 	if len(req.TestID) > maxTestIDLen {
 		return fmt.Errorf("test_id exceeds %d characters", maxTestIDLen)
 	}
+	if !reID.MatchString(req.TestID) {
+		return errors.New("test_id may only contain letters, digits, underscores, hyphens, and dots")
+	}
 	if strings.TrimSpace(req.RunID) == "" {
 		return errors.New("run_id is required")
 	}
 	if len(req.RunID) > maxRunIDLen {
 		return fmt.Errorf("run_id exceeds %d characters", maxRunIDLen)
 	}
+	if !reID.MatchString(req.RunID) {
+		return errors.New("run_id may only contain letters, digits, underscores, hyphens, and dots")
+	}
 	if !validStatuses[req.Status] {
 		return errors.New("status must be one of: passed, failed, skipped, errored")
+	}
+	if req.DurationMS < 0 {
+		return errors.New("duration_ms cannot be negative")
 	}
 	if req.StartedAt == "" {
 		return errors.New("started_at is required")
