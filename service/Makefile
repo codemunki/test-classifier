@@ -1,0 +1,42 @@
+BIN     := test-classifier
+DB      := classifier.db
+ADDR    := :8080
+DATA    := ../data/sample_data.jsonl
+
+.PHONY: build run test load smoke lint fmt clean help
+
+help:
+	@echo "Usage: make <target>"
+	@echo ""
+	@echo "  build   Compile the server binary"
+	@echo "  run     Build and run the server (DB=$(DB), addr=$(ADDR))"
+	@echo "  test    Run the full test suite"
+	@echo "  load    Stream sample data into a running server"
+	@echo "  smoke   Run smoke tests and save server logs to smoke-logs.txt"
+	@echo "  lint    Run go vet"
+	@echo "  fmt     Format all Go source files with gofmt"
+	@echo "  clean   Remove binary and database"
+
+build:
+	go build -o $(BIN) ./cmd/server
+
+run: build
+	./$(BIN) -addr $(ADDR) -db $(DB)
+
+test:
+	go test ./...
+
+load:
+	go run ./cmd/load -addr http://localhost$(ADDR) -file $(DATA)
+
+smoke:
+	@bash smoke.sh
+
+lint:
+	go vet ./...
+
+fmt:
+	gofmt -w $$(find . -name '*.go' -not -path './vendor/*')
+
+clean:
+	rm -f $(BIN) $(DB)

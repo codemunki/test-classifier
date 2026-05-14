@@ -18,6 +18,8 @@ SQLite. In-memory dies on restart, which undercuts production-facing intent. Pos
 | `degrading` | Pass rate acceptable but p95 duration increasing significantly |
 | `insufficient_data` | Fewer than 5 runs — no classification made |
 
+`anomalous` was considered (sudden step-change in duration, bimodal pass/fail patterns, abrupt error message shifts) but not implemented as a distinct label. These patterns are structurally ambiguous — defining them precisely enough to classify with high confidence via heuristics is difficult, and adding a vague catch-all label reduces rather than increases signal for the user. In practice, tests with unusual signal combinations fall below the statistical confidence threshold (0.70) and are escalated to the LLM, which reasons about the pattern in natural language. The LLM path handles the `anomalous` space more defensibly than a hard-coded category would.
+
 ## Classification Strategy
 
 The prompt explicitly asks whether to use AI at runtime and expects a defence either way. Rather than argue theoretically, we implement both behind a common `Classifier` interface and let the data decide.

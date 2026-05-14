@@ -13,4 +13,5 @@ prototype/results-llm.txt
 *.db-wal
 
 # Go
-/service
+/service/test-classifier
+/service/smoke.log
