@@ -213,6 +213,30 @@ time=... level=INFO  msg=llm test_id=llm.smoke duration_ms=1342 input_tokens=312
 
 Run with `LOG_LEVEL=debug make smoke` to see escalation decisions alongside normal output.
 
+## Stress test
+
+```bash
+cd service
+make stress                          # stat scenarios only
+ANTHROPIC_API_KEY=sk-ant-... make stress  # stat + LLM escalation scenarios
+LOG_LEVEL=debug ANTHROPIC_API_KEY=sk-ant-... make stress  # with raw LLM responses
+```
+
+Builds the binary, starts the server on a separate port (`:8098`), and runs targeted scenarios designed to exercise specific classification boundaries. Statistical assertions use exact or `one_of` matching and exit non-zero on failure. LLM escalation scenarios print the full JSON response for inspection.
+
+**What it covers:**
+
+| Scenario | Path | Signal | Expected |
+|---|---|---|---|
+| Clearly broken | stat | 5% pass rate | `broken` — high confidence, no escalation |
+| Near-healthy | stat | 96% pass rate | `healthy` — just above threshold |
+| Consistent error | stat | 20% pass, one error pattern | `flaky` or `broken` — low error diversity |
+| Recovering | LLM | 40% overall, 100% recent | `flaky` or `healthy` — stat misses recovery trend |
+| Duration degrading | LLM | 84% pass, duration 3× | `degrading` — drift triggers escalation at conf 0.65 |
+| Borderline flaky | LLM | 40% pass, varied errors | `flaky` — no dominant signal, conf 0.60 |
+
+Server logs are saved to `stress.log`. The recovering and duration-degrading scenarios are the most interesting under `LOG_LEVEL=debug` — they show the stat result the LLM overrides (or confirms).
+
 ## Load the sample data
 
 With the server running on `:8080`:

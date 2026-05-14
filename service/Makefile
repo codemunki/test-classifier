@@ -4,7 +4,7 @@ ADDR      := :8080
 DATA      := ../data/sample_data.jsonl
 LOG_LEVEL ?= info
 
-.PHONY: build run test load smoke lint fmt clean help
+.PHONY: build run test load smoke stress lint fmt clean help
 
 help:
 	@echo "Usage: make <target>"
@@ -13,7 +13,8 @@ help:
 	@echo "  run     Build and run the server (DB=$(DB), addr=$(ADDR), log-level=$(LOG_LEVEL))"
 	@echo "  test    Run the full test suite"
 	@echo "  load    Stream sample data into a running server"
-	@echo "  smoke   Run smoke tests and save server logs to smoke-logs.txt"
+	@echo "  smoke   Run smoke tests and save server logs to smoke.log"
+	@echo "  stress  Run extended stat + LLM escalation scenarios (stress.log)"
 	@echo "  lint    Run go vet"
 	@echo "  fmt     Format all Go source files with gofmt"
 	@echo "  clean   Remove binary and database"
@@ -32,6 +33,9 @@ load:
 
 smoke:
 	@bash smoke.sh
+
+stress:
+	@bash stress.sh
 
 lint:
 	go vet ./...

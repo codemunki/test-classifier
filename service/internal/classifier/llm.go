@@ -29,13 +29,14 @@ Categories:
 - degrading: acceptable pass rate but duration increasing significantly
 - insufficient_data: fewer than 5 runs
 
-Respond with valid JSON only:
+Respond with ONLY the JSON object below — no markdown fences, no explanations, no notes:
 {"label": "<category>", "confidence": <0.0-1.0>, "reasoning": "<one sentence>"}
 
 Rules:
 - label must be exactly one of the five categories above
 - confidence is your certainty about the label (not the test's reliability)
-- reasoning is one clear sentence citing the key signal`
+- reasoning is one clear sentence citing the key signal
+- if the data suggests a category not in the list, pick the closest valid one`
 
 var llmValidLabels = map[Label]bool{
 	LabelHealthy:          true,
@@ -100,10 +101,14 @@ func (l *llmClassifier) Classify(ctx context.Context, testID string, history []R
 	raw := strings.TrimSpace(msg.Content[0].Text)
 	slog.Debug("llm response", "test_id", testID, "raw", raw)
 
-	raw = strings.TrimPrefix(raw, "```json")
-	raw = strings.TrimPrefix(raw, "```")
-	raw = strings.TrimSuffix(raw, "```")
-	raw = strings.TrimSpace(raw)
+	// Extract the last JSON object — handles markdown fences and self-correction
+	// patterns where the model appends a second, corrected JSON block.
+	jsonStart := strings.LastIndex(raw, "{")
+	jsonEnd := strings.LastIndex(raw, "}")
+	if jsonStart == -1 || jsonEnd == -1 || jsonEnd < jsonStart {
+		return Result{}, fmt.Errorf("llm response: no JSON object found")
+	}
+	raw = raw[jsonStart : jsonEnd+1]
 
 	var out struct {
 		Label      string  `json:"label"`

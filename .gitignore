@@ -15,3 +15,4 @@ prototype/results-llm.txt
 # Go
 /service/test-classifier
 /service/smoke.log
+/service/stress.log
